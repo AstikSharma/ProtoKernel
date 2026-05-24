@@ -1,0 +1,12 @@
+*.o
+*.bin
+*.elf
+*.iso
+
+*.map
+*.log
+
+.vscode/
+
+.DS_Store
+Thumbs.db
