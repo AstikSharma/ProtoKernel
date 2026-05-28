@@ -341,7 +341,7 @@ public:
     }
 };
 
-Shell* int_shell = nullptr;
+Shell shell_instances[2];;
 const char keyboard_map[128] = {
     0,  27, '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b',
   '\t', 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n',
@@ -356,8 +356,9 @@ extern "C" void keyboard_handler_main() {
         if (c == '\t') {
             sys_mux.switch_focus();
         } 
-        else if (c != 0 && int_shell) {
-            int_shell->handle_keystroke(c);
+        else if (c != 0) {
+            int active_idx = sys_mux.get_active_pane() == sys_mux.get_pane(0) ? 0 : 1;
+            shell_instances[active_idx].handle_keystroke(c);
         }
     }
     outb(0x20, 0x20);
@@ -367,24 +368,40 @@ extern "C" void load_idt(unsigned int);
 extern "C" void keyboard_handler_wrapper();
 
 void sample_background_task() {
-    long tick_counter = 0;
+    unsigned int tick_counter = 0;
+    unsigned char spinner_state = 0;
     Terminal* right_pane = sys_mux.get_pane(1);
-
     while(1) {
         right_pane->clear();
         right_pane->write_string("=== SYSTEM LIVE METRICS ===\n\n");
-        right_pane->write_string("Scheduler Status: Running\n");
-        right_pane->write_string("Active Tasks    : \n");
-        right_pane->write_string("Tick Count      : ");
-
+        right_pane->write_string("Scheduler Status : Active\n");
+        right_pane->write_string("Task Matrix Core : 2 Slots\n");
+        right_pane->write_string("Execution Pulse  : [ ");
+        if (spinner_state == 0)      right_pane->write_string("/");
+        else if (spinner_state == 1) right_pane->write_string("-");
+        else if (spinner_state == 2) right_pane->write_string("\\");
+        else if (spinner_state == 3) right_pane->write_string("|");
+        right_pane->write_string(" ]\n");
+        spinner_state = (spinner_state + 1) % 4;
+        right_pane->write_string("Cycles Processed : ");
         tick_counter++;
-        if (tick_counter % 5 == 0) {
-            right_pane->write_string("TICK");
+        unsigned int temp_ticks = tick_counter;
+        char num_buffer[11];
+        num_buffer[10] = '\0';
+        int idx = 9;
+        if (temp_ticks == 0) {
+            num_buffer[idx--] = '0';
+        } else {
+            while (temp_ticks > 0 && idx >= 0) {
+                num_buffer[idx--] = '0' + (temp_ticks % 10);
+                temp_ticks /= 10;
+            }
         }
-
+        right_pane->write_string(&num_buffer[idx + 1]);
+        right_pane->write_string("\n");
         sys_mux.refresh_all();
-
-        for (volatile int d = 0; d < 4000000; d++) {}
+        for (volatile int d = 0; d < 6000000; d++) {}
+        
         yield();
     }
 }
@@ -392,9 +409,10 @@ void sample_background_task() {
 extern "C" void kernel_main() {
     sys_memory.init();
     sys_mux.init();
-    static Shell shell;
-    shell.init();
-    int_shell = &shell;
+    shell_instances[0].init(); 
+    sys_mux.switch_focus();
+    shell_instances[1].init();
+    sys_mux.switch_focus();
     idt_ptr.limit = (sizeof(idt_entry_struct) * 256) - 1;
     idt_ptr.base  = (unsigned int)&idt;
     pic_remap();
